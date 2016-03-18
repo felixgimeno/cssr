@@ -16,7 +16,8 @@ class cssr():
 	computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
 	smallquantity = 0.0000001  # prevent division by zero
 	already = set()  # type: Set[str]
-
+	debug = True
+	
 	def __init__(self, alphabet, data, lmax, alpha):
 		self.alphabet = alphabet
 		self.data = data
@@ -25,7 +26,7 @@ class cssr():
 
 	def move(self, ax: str, stateNumber1 : int, stateNumber2 : int, estimate : bool):
 		if ax in self.states[stateNumber1]:
-			states[stateNumber1].remove(ax)
+			self.states[stateNumber1].remove(ax)
 		if estimate:
 			self.getProbabilityFromState(stateNumber1, True)
 		self.states[stateNumber2].add(ax)
@@ -107,16 +108,7 @@ class cssr():
 						if letter+suffix not in self.already: ## only children of level L suffixes should be considered ... 
 							self.Test(p,letter+suffix,stateNumber)
 						self.already.add(letter+suffix) ##	
-			#from itertools import groupby
-			#states = [set(k) for k,v in groupby(sorted(states))]			
-			# si reordeno o quito, computedProbabilitiesFromStates cambia ...
-			
-			#setOfLists = set([sorted(list(j)) for j in states])
-			#states = sorted([set(j) for j in setOfLists])
-			
-			#print("cssr part two before removing parents "+str(states))
-			
-			def remove_parents(states,alphabet) -> None: #if every child in different sets, and different from parent, then remove 
+			def remove_parents(states, alphabet) -> None: #if every child in different sets, and different from parent, then remove 
 				f = dict() # type: Dict[str,int]
 				for stateNumber in range(len(states)): 
 					for suffix in states[stateNumber]: 
@@ -144,18 +136,12 @@ class cssr():
 		# part three: determinize/recursion
 		
 		def whichState(count, states, w : str) -> int: # epsilon function
-			if w not in count.keys(): 
+			if w not in count: 
 				return -1
-			def isSuffix(str1 : str ,str2 : str ) -> bool: 
-				return str1.endswith(str2)
 			for index, elem in enumerate(states):
 				for suffix in elem:
 					if w.endswith(suffix):
-						return stateNumber						
-			#for stateNumber in range(len(states)):
-			#	for suffix in states[stateNumber]:
-			#		if w.endswith(suffix):
-			#			return stateNumber
+						return index				
 			print("whichState error {}".format(w))
 			exit()
 
@@ -200,34 +186,45 @@ class cssr():
 		remove_transient(self.states, self.lmax, self.alphabet)
 		
 		self.states = self.getStates()
+
+		def newState(self, index, letter, T2):
+			self.states.append(set())
+			visited = set()
+			for y in frozenset(state):
+				if y in visited:
+					pass
+				visited.add(y)
+				T3 = whichState(self.count, self.states, y+letter)
+				if T3 == -1: 
+					continue
+				if T2 == T3:
+					self.move(y, index, len(self.states)-1, False) 	
+			if len(self.states[len(self.states)-1]) > 0:
+				print("cssr debug part three spawned new state {}".format(self.states[len(self.states)-1]))
+			return
 		
 		recursive = False
 		while not recursive:
 			recursive = True
-			for stateNumber in range(len(self.states)):
-				for letter in self.alphabet:
+			for letter in self.alphabet:
+				for index, state in enumerate(self.states):
 					T1 = -1
-					#t = any(map(lambda j: len(j) == Lmax-1, states[stateNumber]))
-					for x in frozenset(self.states[stateNumber]):
-						#if t and len(x) == Lmax: continue
-						#to prevent 'data closures', len(x)=lmax -1 except if state doesnt have len lmax-1 elements 
-						T0 = whichState(self.count, self.states, x+letter)
-						if T0 == -1 : continue
-						if T1 == -1 :
-							T1 = T0
-						else:
-							T2 = T0
-							if T1 != T2:
-								self.states.append(set())
-								#move(x,stateNumber,len(states)-1,False) #remeber we are using frozensets ...
-								for y in frozenset(self.states[stateNumber]):
-									T3 = whichState(self.count, self.states, y+letter)
-									if T3 == -1: continue
-									if T2 == T3:
-										self.move(y,stateNumber,len(states)-1,False) 	
+					staterecursive = False
+					while not staterecursive:
+						staterecursive = True
+						for x in state:
+							#if t and len(x) == Lmax: continue
+							#to prevent 'data closures', len(x)=lmax -1 except if state doesnt have len lmax-1 elements 
+							T0 = whichState(self.count, self.states, x+letter)
+							if T0 == -1 : 
+								continue
+							if T1 == -1 :
+								T1 = T0
+							elif T1 != T0:
+								newState(self, index, letter, T0)
 								recursive = False
-								if len(self.states[len(self.states)-1]) > 0:
-									print("cssr debug part three spawned new state {}".format(self.states[len(self.states)-1]))
+								staterecursive = False
+								break
 															  
 		print("cssr debug part three done")
 		return
