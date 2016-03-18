@@ -70,16 +70,20 @@ class cssr():
 		return
 
 	def getProbabilityFromState(self, stateNumber:int, forced : bool):
-		global computedProbabilitiesFromStates
-		if stateNumber in self.computedProbabilitiesFromStates.keys() and not forced: return self.computedProbabilitiesFromStates[stateNumber]
+		if not forced and stateNumber in self.computedProbabilitiesFromStates: 
+			return self.computedProbabilitiesFromStates[stateNumber]
+		totalSum = sum(self.count.setdefault(x, 0) for x in self.states[stateNumber]) # type: float
+		totalSum = max(self.smallquantity, totalSum)
 		probability = dict() # type: Dict[str,float]
-		totalSum = sum(map(lambda x: self.count[x], self.states[stateNumber].intersection(self.count.keys()))) # type: float
-		totalSum = max(self.smallquantity,totalSum)
 		for letter in self.alphabet:
 			probability[letter] = 0
-			for suffix in self.states[stateNumber].intersection(self.count.keys()):
-				if suffix in self.histories.keys() and letter in self.histories[suffix].keys():
+			for suffix in self.states[stateNumber]:
+				try:
 					probability[letter] += self.histories[suffix][letter]*self.count[suffix]
+				except KeyError:
+					self.count.setdefault(suffix, 0)
+					self.histories.setdefault(suffix, dict())
+					self.histories[suffix].setdefault(letter, 0.0)	
 			probability[letter] /= totalSum	
 		self.computedProbabilitiesFromStates[stateNumber] = probability	
 		return probability
@@ -260,9 +264,7 @@ class cssr():
 					if current not in count: count[current] = 0
 					count[current] += 1
 			return count
-		global count
 		self.count = getCount(self.data, self.lmax)
-		global histories
 		self.histories = getHistories(self.data, self.lmax)
 		return	
 
