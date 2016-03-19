@@ -4,8 +4,6 @@ from typing import Dict, Any, Set
 from random import random, randint
 from math import log
 from itertools import groupby
-import numpy as np
-from scipy.stats import chisquare
 
 
 class cssr():
@@ -15,59 +13,48 @@ class cssr():
 	histories = dict()  # type: Dict[str, Dict[str,float]]
 	computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
 	smallquantity = 0.0000001  # prevent division by zero
-	already = set()  # type: Set[str]
-	debug = True
-	
+
+
 	def __init__(self, alphabet, data, lmax, alpha):
 		self.alphabet = alphabet
 		self.data = data
 		self.lmax = lmax
 		self.alpha = alpha
 
-	def move(self, ax: str, stateNumber1 : int, stateNumber2 : int, estimate : bool):
-		if ax in self.states[stateNumber1]:
-			self.states[stateNumber1].remove(ax)
-		if estimate:
-			self.getProbabilityFromState(stateNumber1, True)
-		self.states[stateNumber2].add(ax)
-		if estimate:
-			self.getProbabilityFromState(stateNumber2, True)
-		return
-
 	def Test(self, p, ax : str, stateNumber:int):
 		if ax not in self.count.keys():
 			return
-		
+
 		def chi_square(self, p, stateNumber) -> bool:
-			myImplementation = True
-			if myImplementation:
-				summation = 0
-				p2 = self.getProbabilityFromState(stateNumber, False)
-				for letter in self.alphabet:
-					if letter not in p.keys(): p[letter] = 0
-					if letter not in p2.keys(): p[letter] = 0
-					if p2[letter] == 0: continue
-					summation += (p[letter]-p2[letter])**2 / max(p2[letter],self.smallquantity)
-				return summation <= self.alpha
-			# as for now, scipy.stats.chisquare gives bad results ...	
 			p2 = self.getProbabilityFromState(stateNumber, False)
-			observed = np.array(list(map(lambda x: p.get(x, 0), self.alphabet)))
-			expected = np.array(list(map(lambda x: p2.get(x, 0), self.alphabet))) 
-			(t, _) = chisquare(observed, expected)	
-			return t <= self.alpha
+			summation = 0
+			for letter in self.alphabet:
+				x = p.setdefault(letter, 0)
+				y = p2.setdefault(letter, 0)
+				summation += (x - y)**2 / max(y, self.smallquantity)
+			return summation <= self.alpha
+
+		def move(self, ax: str, stateNumber1 : int, stateNumber2 : int, estimate : bool) -> None:
+			self.states[stateNumber1].discard(ax)
+			self.states[stateNumber2].add(ax)
+			if estimate:
+				self.getProbabilityFromState(stateNumber1, True)
+				self.getProbabilityFromState(stateNumber2, True)
+			return
+
 		# null hypothesis
 		if (chi_square(self, p, stateNumber)):
 			self.states[stateNumber].add(ax)
 			return
-		# alternative hypothesis	
+		# alternative hypothesis
 		for stateNumber2 in range(len(self.states)):
 			if stateNumber2 != stateNumber:
 				if chi_square(self, p, stateNumber2):
-					self.move(ax, stateNumber, stateNumber2, True)
+					move(self, ax, stateNumber, stateNumber2, True)
 					return
 		# new state			
 		self.states.append(set())
-		self.move(ax, stateNumber, -1 + len(self.states), True)
+		move(self, ax, stateNumber, -1 + len(self.states), True)
 		return
 
 	def getProbabilityFromState(self, stateNumber:int, forced : bool):
@@ -88,13 +75,29 @@ class cssr():
 			probability[letter] /= totalSum	
 		self.computedProbabilitiesFromStates[stateNumber] = probability	
 		return probability
-		
-	def mainAlgorithm(self):
-		# part one: initialize/initialization
-		L = 0
-		self.states = [{""}]
-		# part two: homogenize/sufficiency: to do: estimate
-		while L < self.lmax:
+	
+	def mainAlgorithmPartTwo(self) -> None:
+		# part two: homogenize/sufficiency
+		def remove_parents(states, alphabet) -> None: 
+			# if every child in different sets, and different from parent, then remove 
+			f = dict() # type: Dict[str,int]
+			for stateNumber in range(len(states)): 
+				for suffix in states[stateNumber]: 
+					f[suffix] = stateNumber
+			for stateNumber in range(len(states)): 
+				for suffix in frozenset(states[stateNumber]):
+					acc = 0
+					g = set() # type: Set[int]
+					for letter in alphabet:
+						if letter+suffix in f: g.add(f[letter+suffix])
+					if stateNumber in g: continue
+					if len(g) == len(alphabet):
+						states[stateNumber].remove(suffix)
+						print("cssr debug part two removing parent suffix {}".format(suffix))
+						self.getProbabilityFromState(stateNumber, True)
+			return
+		already = set()  # type: Set[str]	
+		for L in range(self.lmax):
 			n = len(self.states)
 			for stateNumber in range(n):
 				self.getProbabilityFromState(stateNumber, False)
@@ -102,53 +105,30 @@ class cssr():
 					if len(suffix) > L: 
 						continue
 					for letter in self.alphabet:
-						if letter+suffix not in self.histories.keys():  self.histories[letter+suffix]= dict()
-						p = self.histories[letter+suffix] #estimate("P(X_t | X^{t-1}_{t-l} = ax)")
-						#print("cssr debug "+str(L)+" stateNumber "+str(stateNumber)+" suffix "+suffix+" letter "+letter)
-						if letter+suffix not in self.already: ## only children of level L suffixes should be considered ... 
+						if letter+suffix not in already:
+							p = self.histories.setdefault(letter+suffix, dict())
 							self.Test(p,letter+suffix,stateNumber)
-						self.already.add(letter+suffix) ##	
-			def remove_parents(states, alphabet) -> None: #if every child in different sets, and different from parent, then remove 
-				f = dict() # type: Dict[str,int]
-				for stateNumber in range(len(states)): 
-					for suffix in states[stateNumber]: 
-						f[suffix] = stateNumber
-				for stateNumber in range(len(states)): 
-					for suffix in frozenset(states[stateNumber]):
-						acc = 0
-						g = set() # type: Set[int]
-						for letter in alphabet:
-							if letter+suffix in f: g.add(f[letter+suffix])
-						if stateNumber in g: continue
-						if len(g) == len(alphabet):
-							states[stateNumber].remove(suffix)
-							print("cssr debug part two removing parent suffix {}".format(suffix))
-							self.getProbabilityFromState(stateNumber, True)
+							already.add(letter+suffix)
+
 			remove_parents(self.states,self.alphabet)
-			#print("cssr part two after removing parents "+str(states))
 			print("cssr debug part two L {} end".format(L))	
-			L += 1
 			
 		print("cssr debug part two end")
 		
 		self.states = self.getStates()
+		return
 		
+	def mainAlgorithmPartThree(self):
 		# part three: determinize/recursion
 		
-		def whichState(count, states, w : str) -> int: # epsilon function
-			if w not in count: 
-				return -1
-			for index, elem in enumerate(states):
-				for suffix in elem:
-					if w.endswith(suffix):
-						return index				
-			print("whichState error {}".format(w))
-			exit()
-
+		# for removing transitions, to prevent 'data closures', 
+		# len(x) = -1 + lmax except if state doesn't have len lmax-1 elements
+		
 		f = dict() # type:Dict[str,int]
 		for stateNumber in range(len(self.states)): 
 			for suffix in self.states[stateNumber]: 
 				f[suffix] = stateNumber
+		
 		def suffixToState(suffix : str, lmax : int)->int:
 			if suffix in f: 
 				return f[suffix]
@@ -187,20 +167,37 @@ class cssr():
 		
 		self.states = self.getStates()
 
+		
+
+		def whichState(count, states, w : str, lmax) -> int:
+			# epsilon function
+			if w not in count: 
+				return -1
+			if w in f:
+				value = f[w]
+				if any(w.endswith(suffix) for suffix in states[value]):
+					return value	 	
+			for index, elem in enumerate(states):
+				if any(w.endswith(suffix) for suffix in elem):
+					return index	
+			#print("whichState error {}".format(w))
+			#exit()
+			# suffixToState(w, lmax)
+			
 		def newState(self, index, letter, T2):
+			result = list(map(lambda y: (y, whichState(self.count, self.states, y+letter, self.lmax)), self.states[index]))
 			self.states.append(set())
-			visited = set()
-			for y in frozenset(state):
-				if y in visited:
-					pass
-				visited.add(y)
-				T3 = whichState(self.count, self.states, y+letter)
-				if T3 == -1: 
+			indexDest = -1 + len(self.states)
+			for suffix, value in result:
+				if -1 == value: 
 					continue
-				if T2 == T3:
-					self.move(y, index, len(self.states)-1, False) 	
-			if len(self.states[len(self.states)-1]) > 0:
-				print("cssr debug part three spawned new state {}".format(self.states[len(self.states)-1]))
+				elif T2 == value:
+					self.states[index].remove(suffix)
+					self.states[indexDest].add(suffix)
+					f[suffix] = value
+			stateDest = self.states[indexDest]
+			if len(stateDest) > 0:
+				print("cssr debug part three spawned new state {}".format(stateDest))
 			return
 		
 		recursive = False
@@ -213,9 +210,8 @@ class cssr():
 					while not staterecursive:
 						staterecursive = True
 						for x in state:
-							#if t and len(x) == Lmax: continue
-							#to prevent 'data closures', len(x)=lmax -1 except if state doesnt have len lmax-1 elements 
-							T0 = whichState(self.count, self.states, x+letter)
+							
+							T0 = whichState(self.count, self.states, x+letter, self.lmax)
 							if T0 == -1 : 
 								continue
 							if T1 == -1 :
@@ -227,6 +223,11 @@ class cssr():
 								break
 															  
 		print("cssr debug part three done")
+		return
+	
+	def mainAlgorithm(self) -> None:
+		self.mainAlgorithmPartTwo()
+		self.mainAlgorithmPartThree()
 		return
 
 	def precompute(self) -> None:
@@ -240,7 +241,8 @@ class cssr():
 					if nextLetter not in histories[currentHistory]:  histories[currentHistory][nextLetter]=0
 					histories[currentHistory][nextLetter] += 1
 
-			def countToFrequency(histories : Dict[str, Dict[str,Any]]) -> None: #(pass by assignment) histories is dictionary of (pastString, dictionary(nextLetter,intCount))
+			def countToFrequency(histories : Dict[str, Dict[str,Any]]) -> None: 
+				# (pass by assignment) histories is dictionary of (pastString, dictionary(nextLetter,intCount))
 				for history in histories:
 					totalSum = sum(histories[history].values())
 					totalSum *= 1.0
@@ -258,7 +260,8 @@ class cssr():
 			for l in range(lmax+1):
 				for index in range(len(data)-l):
 					current = data[index:index+l]
-					if current not in count: count[current] = 0
+					if current not in count: 
+						count[current] = 0
 					count[current] += 1
 			return count
 		self.count = getCount(self.data, self.lmax)
@@ -268,12 +271,13 @@ class cssr():
 	def getStates(self):
 		# after cssr part two,
 		# suffixes with length less than lmax can be ignored,
-		# but with length Lmax -1 or Lmax cannot
+		# but with length -1+lmax or lmax cannot
 		states = self.states
-		states = [{i for i in state if len(i) >= self.lmax-1} for state in states] 	
-		states = [set(k) for k,v in groupby(sorted(states)) if len(k) != 0]	
+		states = [{i for i in state if len(i) >= -1 + self.lmax} for state in states] 	
+		states = [set(k) for k, v in groupby(sorted(states)) if len(k) != 0]	
 		self.states = states
 		return self.states
+
 		
 def main():
 	myData = ""
@@ -283,37 +287,40 @@ def main():
 	alpha = 0.001
 
 	selection = 1
-	lmax=3
+	lmax=5
 
 	for i in range(N):
 		if selection == 1:
-			##the even process
-			if (random() > 0.5): myData = myData + "11"
-			else: myData = myData + "0" 
+			# the even process
+			if (random() > 0.5): 
+				myData = myData + "11"
+			else: 
+				myData = myData + "0" 
 		if selection == 2:
-			## anbn process
+			# anbn process
 			n = randint(1,2)
 			myData += "0"*n+"1"*n
-		if selection == 3: # to test determinize step
+		if selection == 3: 
+			# to test determinize step
 			if nextState == 'A':
-				if randint(0,1) == 0:
+				if randint(0, 1) == 0:
 					myData += '0'
-					nextState='B'
+					nextState = 'B'
 				else:
 					myData += '1'
-					nextState='C'	
+					nextState = 'C'	
 			elif nextState == 'B':
-				if randint(0,1) == 0:			
+				if randint(0, 1) == 0:			
 					myData += '0'
-					nextState='C'
+					nextState = 'C'
 				else:
 					myData += '1'
-					nextState='A'				
+					nextState = 'A'				
 			else:
-				myData +='1'		
-				nextState ='A'
+				myData += '1'		
+				nextState = 'A'
 
-	myCSSR = cssr(alphabet,myData,lmax,alpha)
+	myCSSR = cssr(alphabet, myData, lmax, alpha)
 	print("precomputing")
 	myCSSR.precompute()
 	print("precomputing done")
