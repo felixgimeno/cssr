@@ -1,5 +1,6 @@
 #!/bin/python3
 # Felix Gimeno's implementation of CSSR algorithm
+# the most time-consuming operations are precompute, whichState and getProbabilityFromState 
 from typing import Dict, Any, Set
 from random import random, randint
 from math import log
@@ -13,8 +14,12 @@ class cssr():
 	histories = dict()  # type: Dict[str, Dict[str,float]]
 	computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
 	smallquantity = 0.0000001  # prevent division by zero
+	debug = False
 
-
+	
+	def setDebugFlag(self):
+		debug = True
+		
 	def __init__(self, alphabet, data, lmax, alpha):
 		self.alphabet = alphabet
 		self.data = data
@@ -93,7 +98,8 @@ class cssr():
 					if stateNumber in g: continue
 					if len(g) == len(alphabet):
 						states[stateNumber].remove(suffix)
-						print("cssr debug part two removing parent suffix {}".format(suffix))
+						if self.debug:
+							print("cssr debug part two removing parent suffix {}".format(suffix))
 						self.getProbabilityFromState(stateNumber, True)
 			return
 		already = set()  # type: Set[str]	
@@ -111,9 +117,11 @@ class cssr():
 							already.add(letter+suffix)
 
 			remove_parents(self.states,self.alphabet)
-			print("cssr debug part two L {} end".format(L))	
+			if self.debug:
+				print("cssr debug part two L {} end".format(L))	
 			
-		print("cssr debug part two end")
+		if self.debug:
+			print("cssr debug part two end")
 		
 		self.states = self.getStates()
 		return
@@ -157,7 +165,8 @@ class cssr():
 			for stateNumber in range(len(states)):
 				if states[stateNumber] == set(): continue
 				if stateNumber not in G: 
-					print("cssr debug part three removing transient state with number "+str(stateNumber)+" and elements "+str(states[stateNumber]))
+					if self.debug:
+						print("cssr debug part three removing transient state with number "+str(stateNumber)+" and elements "+str(states[stateNumber]))
 					states[stateNumber] = set()
 					t = True
 			if t: 
@@ -196,7 +205,7 @@ class cssr():
 					self.states[indexDest].add(suffix)
 					f[suffix] = value
 			stateDest = self.states[indexDest]
-			if len(stateDest) > 0:
+			if len(stateDest) > 0 and self.debug:
 				print("cssr debug part three spawned new state {}".format(stateDest))
 			return
 		
@@ -222,7 +231,8 @@ class cssr():
 								staterecursive = False
 								break
 															  
-		print("cssr debug part three done")
+		if self.debug:
+			print("cssr debug part three done")
 		return
 	
 	def mainAlgorithm(self) -> None:
@@ -230,7 +240,7 @@ class cssr():
 		self.mainAlgorithmPartThree()
 		return
 
-	def precompute(self) -> None:
+	"""def precompute(self) -> None:
 		#histories es diccionario de str a diccionario str freq	:: histories[suffix][letter] is probability that letter follows suffix in data
 		def getHistories(data : str, lmax:int) -> Dict[str, Dict[str,float]]  :
 			def count_l(histories : Dict[str, Dict[str,int]], data : str, l : int) -> None : # (pass by assignment)histories is dictionary ...,data string, length l int 
@@ -266,8 +276,26 @@ class cssr():
 			return count
 		self.count = getCount(self.data, self.lmax)
 		self.histories = getHistories(self.data, self.lmax)
-		return	
+		return	"""
 
+	def precompute_by_index(self) -> None:
+		self.count = dict()  # type: Dict[str, int]
+		self.histories = dict()
+		for index in range(len(self.data)):
+			for l in range(1 + self.lmax):
+				if index+l >= len(self.data):
+					continue	
+				current = self.data[index:index+l]
+				self.count[current] = 1 + self.count.setdefault(current, 0)
+				
+				nextLetter = self.data[index+l]
+				self.histories.setdefault(current, dict())
+				self.histories[current][nextLetter] = 1 + self.histories[current].setdefault(nextLetter, 0)
+		for history in self.histories:
+			totalSum = 1.0 * sum(self.histories[history].values())
+			for letter in self.histories[history]:
+				self.histories[history][letter] /= totalSum
+		
 	def getStates(self):
 		# after cssr part two,
 		# suffixes with length less than lmax can be ignored,
@@ -284,10 +312,10 @@ def main():
 	N = 100000
 	nextState = 'A'
 	alphabet = "01"	
-	alpha = 0.001
+	alpha = 0.1
 
 	selection = 1
-	lmax=5
+	lmax=17
 
 	for i in range(N):
 		if selection == 1:
@@ -322,14 +350,15 @@ def main():
 
 	myCSSR = cssr(alphabet, myData, lmax, alpha)
 	print("precomputing")
-	myCSSR.precompute()
+	myCSSR.precompute_by_index()
 	print("precomputing done")
 	print("CSSR start")
 	myCSSR.mainAlgorithm()
 	print("CSSR end")
-	states = myCSSR.getStates()	
-	for state in states:
-		print(state)
+	states = myCSSR.getStates()
+	if len(states) < 10:	
+		for state in states:
+			print(state)
 	print("values lmax {} logN/logk {} number of states {} alphabet size {} alpha {}"
 		.format(lmax, log(len(myData)) / log(len(alphabet)), len(states), len(alphabet), alpha))	
 	return	
