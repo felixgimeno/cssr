@@ -19,49 +19,64 @@ class cssr():
 	
 	def setDebugFlag(self):
 		debug = True
-		
+
+	def setAlpha(self, alpha):
+		self.alpha = alpha	
+
 	def __init__(self, alphabet, data, lmax, alpha):
 		self.alphabet = alphabet
 		self.data = data
 		self.lmax = lmax
 		self.alpha = alpha
 
-	def Test(self, p, ax : str, stateNumber:int):
+	def chi_square(self, p, stateNumber) -> bool:
+		p2 = self.getProbabilityFromState(stateNumber, False)
+		summation = 0
+		for letter in self.alphabet:
+			x = p.setdefault(letter, 0)
+			y = p2.setdefault(letter, 0)
+			summation += (x - y)**2 / max(y, self.smallquantity)
+		return summation <= self.alpha
+
+	def move(self, ax: str, stateNumber1 : int, stateNumber2 : int, estimate : bool) -> None:
+		self.states[stateNumber1].discard(ax)
+		self.states[stateNumber2].add(ax)
+		if estimate:
+			self.getProbabilityFromState(stateNumber1, True)
+			self.getProbabilityFromState(stateNumber2, True)
+		return
+	def Test(self, p, ax : str, stateNumber : int):
 		if ax not in self.count.keys():
 			return
 
-		def chi_square(self, p, stateNumber) -> bool:
-			p2 = self.getProbabilityFromState(stateNumber, False)
-			summation = 0
-			for letter in self.alphabet:
-				x = p.setdefault(letter, 0)
-				y = p2.setdefault(letter, 0)
-				summation += (x - y)**2 / max(y, self.smallquantity)
-			return summation <= self.alpha
-
-		def move(self, ax: str, stateNumber1 : int, stateNumber2 : int, estimate : bool) -> None:
-			self.states[stateNumber1].discard(ax)
-			self.states[stateNumber2].add(ax)
-			if estimate:
-				self.getProbabilityFromState(stateNumber1, True)
-				self.getProbabilityFromState(stateNumber2, True)
-			return
-
 		# null hypothesis
-		if (chi_square(self, p, stateNumber)):
+		if (self.chi_square(p, stateNumber)):
 			self.states[stateNumber].add(ax)
 			return
+
 		# alternative hypothesis
 		for stateNumber2 in range(len(self.states)):
 			if stateNumber2 != stateNumber:
-				if chi_square(self, p, stateNumber2):
-					move(self, ax, stateNumber, stateNumber2, True)
+				if self.chi_square(p, stateNumber2):
+					self.move(ax, stateNumber, stateNumber2, True)
 					return
+		
 		# new state			
 		self.states.append(set())
-		move(self, ax, stateNumber, -1 + len(self.states), True)
+		self.move(ax, stateNumber, -1 + len(self.states), True)
 		return
-
+	def mult(self, letter: str, suffix: str):
+		try:
+			return self.histories[suffix][letter] * self.count[suffix]
+		except KeyError:
+			self.count.setdefault(suffix, 0)
+			self.histories.setdefault(suffix, dict())
+			self.histories[suffix].setdefault(letter, 0.0)
+		return 0.0
+	
+	def letter_probability(self, letter : str, index : int):
+		return sum(self.mult(letter, suffix) for suffix in self.states[index])
+				
 	def getProbabilityFromState(self, stateNumber:int, forced : bool):
 		if not forced and stateNumber in self.computedProbabilitiesFromStates: 
 			return self.computedProbabilitiesFromStates[stateNumber]
@@ -69,15 +84,7 @@ class cssr():
 		totalSum = max(self.smallquantity, totalSum)
 		probability = dict() # type: Dict[str,float]
 		for letter in self.alphabet:
-			probability[letter] = 0
-			for suffix in self.states[stateNumber]:
-				try:
-					probability[letter] += self.histories[suffix][letter]*self.count[suffix]
-				except KeyError:
-					self.count.setdefault(suffix, 0)
-					self.histories.setdefault(suffix, dict())
-					self.histories[suffix].setdefault(letter, 0.0)	
-			probability[letter] /= totalSum	
+			probability[letter] = self.letter_probability(letter, stateNumber) / totalSum
 		self.computedProbabilitiesFromStates[stateNumber] = probability	
 		return probability
 	
@@ -157,7 +164,7 @@ class cssr():
 			return g		 
 		def remove_transient(states, lmax, alphabet) -> None:
 			# if state node in-degree is zero then unreachable then transient
-			G = set() # type: Set[int]
+			G = set()  # type: Set[int]
 			for stateNumber in range(len(states)):	
 				if states[stateNumber] == set(): continue
 				G.update(stateTransitions(states, stateNumber, lmax, alphabet))
@@ -175,23 +182,20 @@ class cssr():
 		remove_transient(self.states, self.lmax, self.alphabet)
 		
 		self.states = self.getStates()
-
 		
-
 		def whichState(count, states, w : str, lmax) -> int:
 			# epsilon function
 			if w not in count: 
 				return -1
+			w = w[len(w)-lmax:len(w)]
 			if w in f:
 				value = f[w]
-				if any(w.endswith(suffix) for suffix in states[value]):
-					return value	 	
+				if value >= 0 and value < len(states) and w in states[value]:
+					return value
 			for index, elem in enumerate(states):
-				if any(w.endswith(suffix) for suffix in elem):
-					return index	
-			#print("whichState error {}".format(w))
-			#exit()
-			# suffixToState(w, lmax)
+				if w in elem:
+					f[w] = index
+					return index
 			
 		def newState(self, index, letter, T2):
 			result = list(map(lambda y: (y, whichState(self.count, self.states, y+letter, self.lmax)), self.states[index]))
@@ -236,47 +240,13 @@ class cssr():
 		return
 	
 	def mainAlgorithm(self) -> None:
+		states = [{""}]
+		computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
+		
 		self.mainAlgorithmPartTwo()
 		self.mainAlgorithmPartThree()
+		
 		return
-
-	"""def precompute(self) -> None:
-		#histories es diccionario de str a diccionario str freq	:: histories[suffix][letter] is probability that letter follows suffix in data
-		def getHistories(data : str, lmax:int) -> Dict[str, Dict[str,float]]  :
-			def count_l(histories : Dict[str, Dict[str,int]], data : str, l : int) -> None : # (pass by assignment)histories is dictionary ...,data string, length l int 
-				for index in range(len(data)-l):
-					currentHistory = data[index:index+l]
-					nextLetter = data[index+l]
-					if currentHistory not in histories: histories[currentHistory] = dict()
-					if nextLetter not in histories[currentHistory]:  histories[currentHistory][nextLetter]=0
-					histories[currentHistory][nextLetter] += 1
-
-			def countToFrequency(histories : Dict[str, Dict[str,Any]]) -> None: 
-				# (pass by assignment) histories is dictionary of (pastString, dictionary(nextLetter,intCount))
-				for history in histories:
-					totalSum = sum(histories[history].values())
-					totalSum *= 1.0
-					for key in histories[history].keys():
-						histories[history][key] /= totalSum
-						#histories[history][key] = round(histories[history][key], 16) ##############################
-			histories = dict() # type: Dict[str,Dict[str,Any]]
-			for l in range(lmax+1):
-				count_l(histories,data,l)
-			countToFrequency(histories)
-			return histories
-		def getCount(data : str, lmax : int) -> Dict[str, int] :
-			#getCount(data,lmax)[str] is number of times str (string length <= lmax) appears in data
-			count = dict() # type: Dict[str, int] 
-			for l in range(lmax+1):
-				for index in range(len(data)-l):
-					current = data[index:index+l]
-					if current not in count: 
-						count[current] = 0
-					count[current] += 1
-			return count
-		self.count = getCount(self.data, self.lmax)
-		self.histories = getHistories(self.data, self.lmax)
-		return	"""
 
 	def precompute_by_index(self) -> None:
 		self.count = dict()  # type: Dict[str, int]
@@ -315,7 +285,7 @@ def main():
 	alpha = 0.1
 
 	selection = 1
-	lmax=17
+	lmax = 19
 
 	for i in range(N):
 		if selection == 1:
@@ -352,15 +322,17 @@ def main():
 	print("precomputing")
 	myCSSR.precompute_by_index()
 	print("precomputing done")
-	print("CSSR start")
-	myCSSR.mainAlgorithm()
-	print("CSSR end")
-	states = myCSSR.getStates()
-	if len(states) < 10:	
-		for state in states:
-			print(state)
-	print("values lmax {} logN/logk {} number of states {} alphabet size {} alpha {}"
-		.format(lmax, log(len(myData)) / log(len(alphabet)), len(states), len(alphabet), alpha))	
+	for alpha in [0.001, 0.01, 0.1, 1, 10, 100, 1000]:
+		myCSSR.setAlpha(alpha)
+		print("CSSR start")
+		myCSSR.mainAlgorithm()
+		print("CSSR end")
+		states = myCSSR.getStates()
+		if len(states) < 10:	
+			for state in states:
+				print(state)
+		print("CSSR done with values lmax {} logN/logk {} number of states {} alphabet size {} alpha {}"
+			.format(lmax, log(len(myData)) / log(len(alphabet)), len(states), len(alphabet), alpha))	
 	return	
 
 if __name__ == "__main__":
