@@ -1,13 +1,18 @@
-#!/bin/python3
+#!/usr/bin/python3
 # Felix Gimeno's implementation of CSSR algorithm
 # the most time-consuming operations are precompute, whichState and getProbabilityFromState 
 from typing import Dict, Any, Set
 from random import random, randint
 from math import log
 from itertools import groupby
+from os import stat
+import json
 
 
 class cssr():
+	fileid = ""
+	lmax = 0
+	alpha = 0.0
 	states = [{""}]  # type: List[Set[str]]
 	alphabet = ""
 	count = dict()  # type: Dict[str, int]
@@ -18,16 +23,24 @@ class cssr():
 
 	
 	def setDebugFlag(self):
-		debug = True
+		self.debug = True
+	
+	def decreaseLmax(self, lmax: int) -> None:
+		if (lmax < self.lmax):
+			self.lmax = lmax
+		else:
+			print("decreaseLmax error")
+			exit(1)
 
 	def setAlpha(self, alpha):
 		self.alpha = alpha	
 
-	def __init__(self, alphabet, data, lmax, alpha):
+	def __init__(self, alphabet: str, fileid : str, lmax: int, alpha: float, formatting : bool) -> None:
 		self.alphabet = alphabet
-		self.data = data
+		self.fileid = fileid
 		self.lmax = lmax
 		self.alpha = alpha
+		self.formatting = formatting
 
 	def chi_square(self, p, stateNumber) -> bool:
 		p2 = self.getProbabilityFromState(stateNumber, False)
@@ -98,7 +111,6 @@ class cssr():
 					f[suffix] = stateNumber
 			for stateNumber in range(len(states)): 
 				for suffix in frozenset(states[stateNumber]):
-					acc = 0
 					g = set() # type: Set[int]
 					for letter in alphabet:
 						if letter+suffix in f: g.add(f[letter+suffix])
@@ -164,14 +176,17 @@ class cssr():
 			return g		 
 		def remove_transient(states, lmax, alphabet) -> None:
 			# if state node in-degree is zero then unreachable then transient
+			# except if it is the last one
 			G = set()  # type: Set[int]
+			acc = 0
 			for stateNumber in range(len(states)):	
 				if states[stateNumber] == set(): continue
 				G.update(stateTransitions(states, stateNumber, lmax, alphabet))
+				acc +=1
 			t = False
 			for stateNumber in range(len(states)):
 				if states[stateNumber] == set(): continue
-				if stateNumber not in G: 
+				if stateNumber not in G and acc != 1: 
 					if self.debug:
 						print("cssr debug part three removing transient state with number "+str(stateNumber)+" and elements "+str(states[stateNumber]))
 					states[stateNumber] = set()
@@ -189,9 +204,10 @@ class cssr():
 				return -1
 			w = w[len(w)-lmax:len(w)]
 			if w in f:
-				value = f[w]
-				if value >= 0 and value < len(states) and w in states[value]:
-					return value
+				if f[w] is not None: 
+					value = f[w]
+					if value >= 0 and value < len(states) and w in states[value]:
+						return value
 			for index, elem in enumerate(states):
 				if w in elem:
 					f[w] = index
@@ -240,8 +256,8 @@ class cssr():
 		return
 	
 	def mainAlgorithm(self) -> None:
-		states = [{""}]
-		computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
+		self.states = [{""}]
+		self.computedProbabilitiesFromStates = dict()  # type: Dict[int,Dict[str,float]]
 		
 		self.mainAlgorithmPartTwo()
 		self.mainAlgorithmPartThree()
@@ -251,21 +267,51 @@ class cssr():
 	def precompute_by_index(self) -> None:
 		self.count = dict()  # type: Dict[str, int]
 		self.histories = dict()
-		for index in range(len(self.data)):
+		class myFile:
+			def __init__(self, myId : str, lmax : int) -> None:
+				self.f = open(myId, 'r')
+				self.v = self.f.read(lmax+4)
+				self.index = 0
+			def readMore(self):
+				w = self.f.read(1)
+				self.v = self.v[1:] + w
+				self.index += 1
+				return w != '' 
+			def get(self, index1, index2):
+				return self.v[index1-self.index:index2-self.index]
+			def len(self) -> int:
+				return len(self.v)
+			def close(self):
+				self.f.close()
+			def getIndex(self) -> int:
+				return self.index			
+		mF = myFile(self.fileid, self.lmax)
+		while True:
+			index = mF.getIndex()
 			for l in range(1 + self.lmax):
-				if index+l >= len(self.data):
-					continue	
-				current = self.data[index:index+l]
+				if l >= mF.len():
+					continue
+				current = mF.get(index, index+l)
 				self.count[current] = 1 + self.count.setdefault(current, 0)
 				
-				nextLetter = self.data[index+l]
+				nextLetter = mF.get(index+l,index+l+1)
 				self.histories.setdefault(current, dict())
 				self.histories[current][nextLetter] = 1 + self.histories[current].setdefault(nextLetter, 0)
+			mF.readMore()
+			if mF.len() == 0: 
+				break
+		mF.close()			
 		for history in self.histories:
 			totalSum = 1.0 * sum(self.histories[history].values())
 			for letter in self.histories[history]:
 				self.histories[history][letter] /= totalSum
-		
+		return		
+	def precompute_write(self) -> None:
+		json.dump(self.count, open("cssr_count.out",'w'), sort_keys=True, indent=4, separators=(',', ': '))
+		json.dump(self.histories, open("cssr_histories.out",'w'), sort_keys=True, indent=4, separators=(',', ': '))
+	def precompute_read(self) -> None:
+		self.count = dict(json.load(open("cssr_count.out",'r')) )
+		self.histories = dict(json.load(open("cssr_histories.out",'r')))
 	def getStates(self):
 		# after cssr part two,
 		# suffixes with length less than lmax can be ignored,
@@ -275,18 +321,16 @@ class cssr():
 		states = [set(k) for k, v in groupby(sorted(states)) if len(k) != 0]	
 		self.states = states
 		return self.states
-
-		
-def main():
+	def states_write(self) -> None:
+		m = {i : {j : w for j, w in enumerate(v)} for i, v in enumerate(self.states)}
+		#print(m)
+		json.dump(m, open("cssr_"+str(self.alpha)+".out",'w'), sort_keys=True, indent=4, separators=(',', ': '))
+def generateSample(selection:int, N:int) -> None:
+	if selection == 5:
+		generateLabyrinth(N)
+		return
 	myData = ""
-	N = 100000
 	nextState = 'A'
-	alphabet = "01"	
-	alpha = 0.1
-
-	selection = 1
-	lmax = 19
-
 	for i in range(N):
 		if selection == 1:
 			# the even process
@@ -317,23 +361,98 @@ def main():
 			else:
 				myData += '1'		
 				nextState = 'A'
-
-	myCSSR = cssr(alphabet, myData, lmax, alpha)
+	# f = open("cssr.in",'w')
+	# f.write(myData)
+	# f.close()				
+	return
+	
+def generateLabyrinth(N: int):
+	class board:
+		board=[[0,0,0],[0,0,0],[0,0,0]]
+		current = (0, 0)
+		start =   (0, 0)
+		end =     (0, 0)
+		
+		
+		def __init__(self, c, r) -> None:
+			self.c = c
+			self.r = r	
+		def pos(self, t) -> bool:
+			x, y = t
+			#print(str(x)+" "+str(y))
+			s = x >= 0 and y >= 0 and self.c >= x and self.r >= y
+			#print(s)
+			return s  	 
+		def get(self,x,y) -> int:
+			return self.board[x][y]
+		def posnext(self) -> str:
+			while True:
+				m = randint(0,6)
+				n = [1, 1, 1, 2, 2, 3, 4][m]
+				letter = {1 : "R", 2: "U", 3 :"L",4:"D"}[n]
+				#print("letter "+letter)
+				x, y = self.current
+				pnext = (x, y)
+				if letter == "R": pnext = (x+1, y)
+				if letter == "U": pnext = (x,y+1)
+				if letter == "L": pnext = (x-1,y)
+				if letter == "D": pnext = (x,y-1)
+				if not self.pos(pnext):
+					continue
+				if pnext == self.end or pnext == self.start:
+					self.current = self.start
+					return letter + "S"
+				self.current = pnext
+				return letter
+			return ""
+	myBoard = board(2,2)
+	l =  ( myBoard.posnext() for i in range(1, N) )
+	string = str("".join(list(l)))
+	with open("cssr.in",'w') as f:
+		f.write(string)
+	return	
+	
+def main():
+	load_again = True
+	if load_again:
+		selection = 5
+		N = 1000000	
+		generateSample(selection, N)
+	alphabet = "UDRLS"	
+	lmax = 5
+	my_file_id = "cssr.in"
+	my_formatting = False
+	alpha = 0.001
+	myCSSR = cssr(alphabet, my_file_id, lmax, alpha, my_formatting)
 	print("precomputing")
-	myCSSR.precompute_by_index()
+	if load_again:
+		myCSSR.precompute_by_index()
+		myCSSR.precompute_write()
+	#myCSSR.setDebugFlag()
+	
+	myCSSR.precompute_read()
 	print("precomputing done")
-	for alpha in [0.001, 0.01, 0.1, 1, 10, 100, 1000]:
+	alphalist = [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+	alphalist.reverse()
+	for alpha in alphalist:
 		myCSSR.setAlpha(alpha)
 		print("CSSR start")
 		myCSSR.mainAlgorithm()
 		print("CSSR end")
 		states = myCSSR.getStates()
+		"""
 		if len(states) < 10:	
 			for state in states:
-				print(state)
-		print("CSSR done with values lmax {} logN/logk {} number of states {} alphabet size {} alpha {}"
-			.format(lmax, log(len(myData)) / log(len(alphabet)), len(states), len(alphabet), alpha))	
+				if len(state) < 20:
+					print(state)
+		"""
+		myCSSR.states_write()
+		print(
+			"CSSR done with values lmax {} logN/logk {} number of states {} alphabet size {} alpha {}"
+			.format(lmax, log(stat("cssr.in").st_size) / log(len(alphabet)), len(states), len(alphabet), alpha)	
+			)
 	return	
 
 if __name__ == "__main__":
 	main()
+	
