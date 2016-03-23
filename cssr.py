@@ -6,6 +6,7 @@ from random import random, randint
 from math import log
 from itertools import groupby
 from os import stat
+from functools import lru_cache
 import json
 
 
@@ -78,6 +79,7 @@ class cssr():
 		self.states.append(set())
 		self.move(ax, stateNumber, -1 + len(self.states), True)
 		return
+	@lru_cache(maxsize = None)	
 	def mult(self, letter: str, suffix: str):
 		try:
 			return self.histories[suffix][letter] * self.count[suffix]
@@ -413,26 +415,31 @@ def generateLabyrinth(N: int):
 	return	
 	
 def main():
-	load_again = True
-	if load_again:
-		selection = 5
-		N = 1000000	
+	generate_again = True
+	if generate_again:
+		selection = 1
+		N = 100000000	
 		generateSample(selection, N)
-	alphabet = "UDRLS"	
-	lmax = 5
+	alphabet = "01"	
+	lmax = 25
 	my_file_id = "cssr.in"
 	my_formatting = False
 	alpha = 0.001
 	myCSSR = cssr(alphabet, my_file_id, lmax, alpha, my_formatting)
-	print("precomputing")
+	
+	load_again = True
 	if load_again:
+		print("parsing")
 		myCSSR.precompute_by_index()
 		myCSSR.precompute_write()
+		print("parsing done, written to file")
+		return
 	#myCSSR.setDebugFlag()
-	
+	print("parse: reading from file")
 	myCSSR.precompute_read()
-	print("precomputing done")
-	alphalist = [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+	print("parse: done")
+	#alphalist = [0.001, 0.01, 0.1, 1, 10, 100, 1000]
+	alphalist = [0.001]
 	alphalist.reverse()
 	for alpha in alphalist:
 		myCSSR.setAlpha(alpha)
